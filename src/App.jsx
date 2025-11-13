@@ -1,17 +1,18 @@
-// src/App.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import io from 'socket.io-client'; 
 import './App.css';
 
-const API_URL = 'http://localhost:3000'; // On met l'URL de base
+const API_URL = 'http://localhost:3000';
 const GRID_SIZE = 50;
 
-function App() {
-  const [pixels, setPixels] = useState([]); // Pixels de l'API
-  const [loading, setLoading] = useState(true);
-  const [currentColor, setCurrentColor] = useState('#FF0000'); // Couleur sélectionnée
+const socket = io(API_URL);
 
-  // Fonction pour charger la grille (ne change pas)
+function App() {
+  const [pixels, setPixels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [currentColor, setCurrentColor] = useState('#FF0000');
+
   const fetchGrid = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/grid`);
@@ -27,41 +28,37 @@ function App() {
     }
   };
 
-  // Chargement initial
   useEffect(() => {
     fetchGrid();
-  }, []);
 
-  /*
-   * (US-5): Fonction pour PLACER un pixel
-   */
-  const handlePlacePixel = async (x, y) => {
-    // 1. (Auth) Pour l'instant, on ignore l'authentification
-    // const token = "votre-jwt-token"; 
-    // const config = { headers: { Authorization: `Bearer ${token}` } };
-    
-    const pixelData = {
-      x: x,
-      y: y,
-      color: currentColor
+    socket.on('connect', () => {
+      console.log('🔌 Connecté au serveur WebSocket (front-end)');
+    });
+
+    socket.on('new_pixel', (newPixel) => {
+      setPixels(prevPixels => [
+        ...prevPixels.filter(p => !(p.x_coord === newPixel.x && p.y_coord === newPixel.y)),
+        { x_coord: newPixel.x, y_coord: newPixel.y, color: newPixel.color }
+      ]);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('new_pixel');
     };
+  }, []); 
+
+  const handlePlacePixel = async (x, y) => {
+    const pixelData = { x, y, color: currentColor };
 
     try {
-      // 2. Appel API POST (on envoie x, y, color)
-      await axios.post(`${API_URL}/api/grid/pixel`, pixelData /*, config */);
 
-      // 3. Mise à jour "Optimiste" de l'état
-      // On ajoute le nouveau pixel à notre 'state' React
-      // sans devoir recharger toute la grille.
-      setPixels(prevPixels => [
-        ...prevPixels.filter(p => !(p.x_coord === x && p.y_coord === y)), // Enlève l'ancien à (x,y)
-        { x_coord: x, y_coord: y, color: currentColor } // Ajoute le nouveau
-      ]);
+      await axios.post(`${API_URL}/api/grid/pixel`, pixelData);
+
 
     } catch (error) {
-      // Si on reçoit une erreur 429 (Rate Limit), on l'affiche
       if (error.response && error.response.status === 429) {
-        alert(error.response.data.message); // Affiche le message de votre API
+        alert(error.response.data.message); 
       } else {
         console.error("Erreur placePixel:", error);
         alert("Erreur lors du placement du pixel.");
@@ -69,7 +66,8 @@ function App() {
     }
   };
 
-  // Fonction pour générer les cases vides (cliquables)
+
+  
   const renderGridCells = () => {
     const cells = [];
     for (let y = 1; y <= GRID_SIZE; y++) {
@@ -79,7 +77,6 @@ function App() {
             key={`${x}-${y}`}
             className="grid-cell"
             style={{ '--x': x, '--y': y }}
-            // Au clic, on appelle l'API
             onClick={() => handlePlacePixel(x, y)} 
           ></div>
         );
@@ -95,8 +92,6 @@ function App() {
   return (
     <div className="App">
       <h1>PixelGrid (Front-End)</h1>
-
-      {/* Le sélecteur de couleur */}
       <div className="color-picker">
         <label>Couleur :</label>
         <input 
@@ -107,11 +102,7 @@ function App() {
       </div>
       
       <div className="pixel-grid-container">
-        
-        {/* Grille de fond (pour les clics) */}
         {renderGridCells()}
-
-        {/* Pixels placés (venus de l'API) */}
         {pixels.map((pixel, index) => (
           <div 
             key={index}
